@@ -78,6 +78,7 @@ data class SearchHit(
     val number: Int,
     val title: String?,
     val detail: String,
+    val matchLine: String? = null,
 )
 
 const val SOURCE_HYMNAL = "hymnal.net"

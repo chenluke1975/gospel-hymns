@@ -1,9 +1,22 @@
 package org.gospelhymns.jukebox.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+data class LyricSyncProgress(
+    val saved: Int,
+    val total: Int,
+    val current: Int?,
+    val running: Boolean,
+    val note: String?,
+) {
+    val complete: Boolean get() = total > 0 && saved >= total && !running
+}
 
 data class LoadedHymn(
     val detail: HymnDetail,
@@ -22,6 +35,53 @@ class HymnRepository(
     fun cached(): List<HymnDetail> = cache.all()
 
     fun clearCache() = cache.clear()
+
+    fun lyricLibrarySize(): Int = catalog.orderedNumbers().size
+
+    fun lyricsSavedCount(): Int = catalog.orderedNumbers().count { cache.read(it) != null }
+
+    /**
+     * Fetches any catalog hymn that is not yet on the device.
+     * Already stored hymns are skipped, so a second run resumes.
+     * Waits [pauseMs] after each network fetch.
+     */
+    suspend fun downloadMissingLyrics(
+        pauseMs: Long = 2_000L,
+        onProgress: (LyricSyncProgress) -> Unit,
+    ) {
+        val numbers = catalog.orderedNumbers()
+        val total = numbers.size
+        onProgress(LyricSyncProgress(lyricsSavedCount(), total, null, running = true, note = null))
+        for (number in numbers) {
+            coroutineContext.ensureActive()
+            if (cache.read(number) != null) continue
+            onProgress(LyricSyncProgress(lyricsSavedCount(), total, number, running = true, note = null))
+            try {
+                withContext(Dispatchers.IO) {
+                    gate.withLock {
+                        if (cache.read(number) == null) {
+                            cache.write(fetch(number))
+                        }
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                onProgress(
+                    LyricSyncProgress(
+                        saved = lyricsSavedCount(),
+                        total = total,
+                        current = number,
+                        running = false,
+                        note = error.message ?: "連線中斷",
+                    ),
+                )
+                return
+            }
+            if (pauseMs > 0) delay(pauseMs)
+        }
+        onProgress(LyricSyncProgress(lyricsSavedCount(), total, null, running = false, note = null))
+    }
 
     suspend fun open(number: Int): LoadedHymn = withContext(Dispatchers.IO) {
         gate.withLock {
