@@ -1,0 +1,23 @@
+{
+  "119": {
+    "source": "hymnary.org",
+    "note": "https://hymnary.org/text/glory_glory_everlasting_be_to_him — English title Glory, everlasting glory matches Thomas Kelly's hymn",
+    "lyricists": [
+      {"name": "Thomas Kelly", "years": "1769-1855"}
+    ]
+  },
+  "495": {
+    "source": "hymnary.org",
+    "note": "https://hymnary.org/text/weary_pilgrim_on_lifes_pathway",
+    "lyricists": [
+      {"name": "William James Kirkpatrick", "years": "1838-1921"}
+    ]
+  },
+  "1001": {
+    "source": "hymnary.org",
+    "note": "https://hymnary.org/text/blessing_and_honor_and_glory_be_thine",
+    "lyricists": [
+      {"name": "Gerald S. Henderson", "years": null}
+    ]
+  }
+}

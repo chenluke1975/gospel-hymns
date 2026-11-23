@@ -1,2 +1,42 @@
-# gospel-hymns
-福音書房詩歌點唱機 Android app
+# 福音書房詩歌點唱機
+
+離線優先的 Android 點唱介面（Kotlin）。介面文字為繁體中文。
+
+這個程式**沒有**把《大本詩歌》的歌詞或錄音打進安裝檔，倉庫裡也沒有這些內容。你開啟某一首時，應用程式才像瀏覽器一樣讀取 [hymnal.net](https://www.hymnal.net/) 上的 `https://www.hymnal.net/en/hymn/ch/N`，並把那一首記在這台手機裡，供再次查看、搜尋與播放。音訊使用該頁自己的播放位址串流，不會另存成音樂檔放進 APK。
+
+《大本詩歌》與 hymnal.net 上的歌詞、翻譯和錄音，版權屬 Living Stream Ministry 與個別作者。這個私人倉庫只供個人或教會敬拜時自己使用。請不要把手機上的快取再複製或公開散布。應用程式裡可以清除本機快取。
+
+內建的只有目錄資料：大本詩歌分類與編號（依蒙特利公園教會公開目錄）、作詞作曲姓名、英文詩歌編號，以及自行撰寫的作者短介。沒有內建標題全文或歌詞。
+
+## 功能
+
+- 點唱：播放、暫停、上一首、下一首、進度、依編號 1–780 播放（目錄中的附錄 1001–1006 也可以開啟）
+- 歌詞面板，中文、英文或中英對照
+- 英文題名、作詞、作曲與作者簡介
+- 點作者可看目錄中同一人的詩
+- 搜尋編號、作者、分類，以及這台裝置已經開過的標題與歌詞
+- 依大本詩歌分類瀏覽
+
+作者欄若 hymnal.net 的中文頁與英文頁都空白，會用公開來源補上，並在 `tools/author_fills.csv` 註明出處。仍然查不到的標為佚名，列在 `tools/author_unknown.csv`。
+
+## 目錄裡有什麼
+
+內建 786 筆（大本 1–780，另加目錄中的附錄 1001–1006）：分類、作詞作曲姓名、英文詩歌編號，以及頁面上是否看得到 mp3。其中 773 筆有英文詩歌編號，784 筆的頁面提供 mp3。第 136、244 首在整理目錄時沒有看到 mp3 或 midi，開啟時仍會再向該頁確認。
+
+作詞或作曲若中文頁是空白，會先看 hymnal.net 的英文對應頁，再對照 hymnary.org 上題名相符的公開記載。補上的姓名與出處在 `tools/author_fills.csv`。仍然無法確定的列為佚名，見 `tools/author_unknown.csv`。題名鬆散相符、或只剩姓名縮寫的結果沒有採用。
+
+沒有放進安裝檔的東西：歌詞、錄音、音訊網址，以及全本中英文題名。題名與歌詞只在你開啟那一首之後，留在這台裝置的快取裡供搜尋。
+
+## 建置
+
+需要 JDK 17 與 Android SDK（compileSdk 35）。
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleRelease
+```
+
+APK 在 `app/build/outputs/apk/release/`。發行用的 APK 以 debug 金鑰簽名，方便在私人裝置安裝。
+
+介面字型是 Noto Sans CJK TC（SIL Open Font License），授權見 `third_party/noto/LICENSE`。
+
+`tools/build_categories.py` 只整理分類與編號。`tools/fetch_author_metadata.py` 只抓作詞作曲等書目，並遵守約兩秒一頁；它不會把歌詞或音訊寫進檔案。
