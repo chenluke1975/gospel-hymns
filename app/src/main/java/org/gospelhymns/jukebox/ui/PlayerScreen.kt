@@ -1,5 +1,6 @@
 package org.gospelhymns.jukebox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import org.gospelhymns.jukebox.AudioMix
 import org.gospelhymns.jukebox.LyricMode
 import org.gospelhymns.jukebox.MainViewModel
 import org.gospelhymns.jukebox.PlayerUiState
@@ -46,8 +48,16 @@ import org.gospelhymns.jukebox.data.SOURCE_UNKNOWN
 import org.gospelhymns.jukebox.data.Stanza
 
 @Composable
-fun PlayerScreen(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -> Unit) {
+fun PlayerScreen(
+    vm: MainViewModel,
+    state: PlayerUiState,
+    onAuthor: (String) -> Unit,
+    onBackToCategory: () -> Unit,
+    onOpenCategory: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     var about by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = vm.returnToCategory.value) { onBackToCategory() }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -55,11 +65,18 @@ fun PlayerScreen(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -> 
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(Zh.appName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenSettings) { Text(Zh.settings) }
             IconButton(onClick = { about = true }) {
                 Icon(Icons.Filled.Info, contentDescription = Zh.about)
             }
         }
-        Header(vm, state, onAuthor)
+        if (vm.returnToCategory.value) {
+            val place = vm.catalog.place(state.number)
+            TextButton(onClick = onBackToCategory, contentPadding = PaddingValues(0.dp)) {
+                Text("← ${Zh.backToCategory}：${place?.category ?: ""}")
+            }
+        }
+        Header(vm, state, onAuthor, onOpenCategory)
         Transport(vm, state)
         Text(Zh.lyricsPanel, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
         ModeRow(state.lyricMode, vm::setLyricMode)
@@ -91,7 +108,7 @@ fun PlayerScreen(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -> 
 }
 
 @Composable
-private fun Header(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -> Unit) {
+private fun Header(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -> Unit, onOpenCategory: () -> Unit) {
     val hymn = state.hymn?.takeIf { it.number == state.number }
     val place = vm.catalog.place(state.number)
     Text("第 ${state.number} 首", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -108,7 +125,9 @@ private fun Header(vm: MainViewModel, state: PlayerUiState, onAuthor: (String) -
         )
     }
     if (place != null) {
-        Text("${place.category} · ${place.subcategory}", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = onOpenCategory, contentPadding = PaddingValues(0.dp)) {
+            Text("${Zh.categoryLabel}　${place.category} · ${place.subcategory}")
+        }
     }
     val credits = hymn ?: run {
         val credit = vm.catalog.credit(state.number)
@@ -173,6 +192,27 @@ private fun Transport(vm: MainViewModel, state: PlayerUiState) {
             Icon(if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (state.isPlaying) Zh.pause else Zh.play)
         }
         IconButton(onClick = vm::next) { Icon(Icons.Filled.SkipNext, contentDescription = Zh.next) }
+    }
+    val hymn = state.hymn?.takeIf { it.number == state.number }
+    if (hymn != null && (hymn.vocal() != null || hymn.instrumental() != null)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(
+                selected = state.audioMix == AudioMix.Vocal,
+                onClick = { vm.setAudioMix(AudioMix.Vocal) },
+                enabled = hymn.vocal() != null,
+                label = { Text(Zh.vocal) },
+            )
+            FilterChip(
+                selected = state.audioMix == AudioMix.Instrumental,
+                onClick = { vm.setAudioMix(AudioMix.Instrumental) },
+                enabled = hymn.instrumental() != null,
+                label = { Text(Zh.instrumental) },
+            )
+            Text(
+                "${Zh.nowPlaying}：${if (state.audioMix == AudioMix.Vocal && hymn.vocal() != null) Zh.vocal else Zh.instrumental}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(formatTime(state.positionMs), style = MaterialTheme.typography.bodySmall)

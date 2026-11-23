@@ -40,6 +40,22 @@ class Catalog(
 
     fun orderedNumbers(): List<Int> = order
 
+    /** Index of a hymn row when only [categoryId] is expanded in the category list. */
+    fun rowIndex(categoryId: String, hymn: Int): Int {
+        var index = 1
+        for (category in categories) {
+            index += 1
+            if (category.id != categoryId) continue
+            for (sub in category.subcategories) {
+                index += 1
+                val at = sub.hymns.indexOf(hymn)
+                if (at >= 0) return index + at
+                index += sub.hymns.size
+            }
+        }
+        return 1
+    }
+
     fun step(number: Int, delta: Int): Int {
         if (order.isEmpty()) return number
         val index = order.indexOf(number)

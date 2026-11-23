@@ -27,6 +27,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import org.gospelhymns.jukebox.MainViewModel
+import org.gospelhymns.jukebox.ui.SettingsScreen
 
 private object Routes {
     const val Player = "player"
@@ -34,6 +35,7 @@ private object Routes {
     const val Search = "search"
     const val Authors = "authors"
     const val Author = "author/{name}"
+    const val Settings = "settings"
     fun author(name: String) = "author/${Uri.encode(name)}"
 }
 
@@ -90,11 +92,24 @@ fun JukeboxApp(
     ) { padding ->
         NavHost(nav, startDestination = Routes.Player, modifier = Modifier.padding(padding)) {
             composable(Routes.Player) {
-                PlayerScreen(vm, vm.state.value) { name -> nav.navigate(Routes.author(name)) }
+                PlayerScreen(
+                    vm,
+                    vm.state.value,
+                    onAuthor = { name -> nav.navigate(Routes.author(name)) },
+                    onBackToCategory = {
+                        vm.finishReturnToCategory()
+                        nav.navigate(Routes.Categories) { launchSingleTop = true }
+                    },
+                    onOpenCategory = {
+                        vm.showCategoryOfCurrentHymn()
+                        nav.navigate(Routes.Categories) { launchSingleTop = true }
+                    },
+                    onOpenSettings = { nav.navigate(Routes.Settings) },
+                )
             }
             composable(Routes.Categories) {
-                CategoryScreen(vm) { number ->
-                    vm.openNumber(number, autoplay = false)
+                CategoryScreen(vm) { number, index, offset ->
+                    vm.openHymnFromCategory(number, index, offset)
                     nav.popBackStack(Routes.Player, inclusive = false)
                 }
             }
@@ -106,6 +121,9 @@ fun JukeboxApp(
             }
             composable(Routes.Authors) {
                 AuthorListScreen(vm) { name -> nav.navigate(Routes.author(name)) }
+            }
+            composable(Routes.Settings) {
+                SettingsScreen(vm)
             }
             composable(Routes.Author) { entry ->
                 val encoded = entry.arguments?.getString("name").orEmpty()

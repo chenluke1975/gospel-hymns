@@ -1,6 +1,7 @@
 package org.gospelhymns.jukebox.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,14 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -32,9 +34,16 @@ import org.gospelhymns.jukebox.data.AuthorGroup
 import org.gospelhymns.jukebox.data.searchHymns
 
 @Composable
-fun CategoryScreen(vm: MainViewModel, onOpen: (Int) -> Unit) {
-    var openId by rememberSaveable { mutableStateOf<String?>(null) }
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+fun CategoryScreen(vm: MainViewModel, onOpen: (Int, Int, Int) -> Unit) {
+    var openId by rememberSaveable { mutableStateOf(vm.openCategoryId.value) }
+    val listState = rememberLazyListState(vm.categoryScrollIndex.intValue, vm.categoryScrollOffset.intValue)
+    LaunchedEffect(vm.openCategoryId.value, vm.highlightNumber.value) {
+        vm.openCategoryId.value?.let { openId = it }
+        if (vm.highlightNumber.value != null) {
+            listState.scrollToItem(vm.categoryScrollIndex.intValue, vm.categoryScrollOffset.intValue)
+        }
+    }
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             Text(
                 Zh.categories,
@@ -66,7 +75,7 @@ fun CategoryScreen(vm: MainViewModel, onOpen: (Int) -> Unit) {
                         )
                     }
                     items(sub.hymns, key = { "h-$it" }) { number ->
-                        HymnLine(vm, number, onOpen)
+                        HymnLine(vm, number, listState, onOpen)
                     }
                 }
             }
@@ -94,7 +103,7 @@ fun SearchScreen(vm: MainViewModel, initialQuery: String, onOpen: (Int) -> Unit)
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
-        LyricDownloadCard(sync, vm::startLyricDownload, vm::stopLyricDownload)
+        LyricDownloadStatus(sync)
         if (query.isNotBlank() && hits.isEmpty()) {
             Text(Zh.noResults, modifier = Modifier.padding(16.dp))
         }
@@ -108,7 +117,8 @@ fun SearchScreen(vm: MainViewModel, initialQuery: String, onOpen: (Int) -> Unit)
                 ) {
                     val title = hit.title?.takeIf { it.isNotBlank() } ?: vm.catalog.place(hit.number)?.let { "${it.category} · ${it.subcategory}" }
                     Text("第 ${hit.number} 首${if (title != null) "  $title" else ""}", style = MaterialTheme.typography.titleMedium)
-                    if (hit.matchLine != null) {
+                    FirstLine(vm.peekFirstLine(hit.number))
+                    if (hit.matchLine != null && hit.matchLine != vm.peekFirstLine(hit.number)) {
                         HighlightedLine(hit.matchLine, query)
                     }
                     Text(hit.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -120,39 +130,52 @@ fun SearchScreen(vm: MainViewModel, initialQuery: String, onOpen: (Int) -> Unit)
 }
 
 @Composable
-private fun LyricDownloadCard(
-    sync: org.gospelhymns.jukebox.data.LyricSyncProgress,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
+private fun LyricDownloadStatus(sync: org.gospelhymns.jukebox.data.LyricSyncProgress) {
+    if (sync.total == 0) return
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        when {
-            sync.complete -> Text(Zh.downloadDone, style = MaterialTheme.typography.bodyMedium)
-            sync.running -> {
-                Text(
-                    "${Zh.downloadRunning}　${sync.saved} / ${sync.total}" +
-                        (sync.current?.let { "　第 $it 首" } ?: ""),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                val fraction = if (sync.total == 0) 0f else sync.saved.toFloat() / sync.total
-                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
-                OutlinedButton(onClick = onStop) { Text(Zh.stopDownload) }
-            }
-            else -> {
-                Text(Zh.downloadOffer, style = MaterialTheme.typography.bodySmall)
-                if (!sync.note.isNullOrBlank()) {
-                    Text(sync.note, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                    Button(onClick = onStart) { Text(Zh.downloadLyrics) }
-                    Text(
-                        "　${sync.saved} / ${sync.total}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
+        val label = when {
+            sync.complete -> Zh.downloadDone
+            sync.running && sync.note != null -> "${sync.note}　${sync.saved} / ${sync.total}"
+            sync.running -> "${Zh.downloadRunning}　${sync.saved} / ${sync.total}"
+            else -> "${Zh.downloadWaiting}　${sync.saved} / ${sync.total}"
+        }
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!sync.complete) {
+            val fraction = sync.saved.toFloat() / sync.total.coerceAtLeast(1)
+            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
         }
     }
+}
+
+@Composable
+fun SettingsScreen(vm: MainViewModel) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text(Zh.settings, style = MaterialTheme.typography.headlineMedium)
+        Text(Zh.retryLyricsHelp, modifier = Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "${vm.lyricSync.value.saved} / ${vm.lyricSync.value.total}",
+            modifier = Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        androidx.compose.material3.Button(
+            onClick = vm::retryLyricDownload,
+            modifier = Modifier.padding(top = 16.dp),
+        ) { Text(Zh.retryLyrics) }
+        androidx.compose.material3.OutlinedButton(
+            onClick = vm::clearCache,
+            modifier = Modifier.padding(top = 12.dp),
+        ) { Text(Zh.clearCache) }
+    }
+}
+
+@Composable
+private fun FirstLine(line: String?) {
+    Text(
+        line ?: Zh.lyricPending,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (line == null) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 2.dp),
+    )
 }
 
 @Composable
@@ -218,6 +241,7 @@ fun AuthorDetailScreen(vm: MainViewModel, name: String, onOpen: (Int) -> Unit) {
                 val cached = vm.catalog.credit(hymn.number)
                 val title = vm.peekTitle(hymn.number)
                 Text("第 ${hymn.number} 首${if (title.isNullOrBlank()) "" else "  $title"}", style = MaterialTheme.typography.titleMedium)
+                FirstLine(vm.peekFirstLine(hymn.number))
                 Text(hymn.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 if (cached != null) {
                     val other = (cached.lyricists + cached.composers).joinToString("、") { it.name }
@@ -230,19 +254,24 @@ fun AuthorDetailScreen(vm: MainViewModel, name: String, onOpen: (Int) -> Unit) {
 }
 
 @Composable
-private fun HymnLine(vm: MainViewModel, number: Int, onOpen: (Int) -> Unit) {
+private fun HymnLine(vm: MainViewModel, number: Int, listState: LazyListState, onOpen: (Int, Int, Int) -> Unit) {
     val credit = vm.catalog.credit(number)
     val title = vm.peekTitle(number)
+    val highlighted = vm.highlightNumber.value == number
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable { onOpen(number) }
+            .background(if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable {
+                onOpen(number, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            }
             .padding(start = 28.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Text(
             "第 $number 首${if (title.isNullOrBlank()) "" else "  $title"}",
             style = MaterialTheme.typography.bodyLarge,
         )
+        FirstLine(vm.peekFirstLine(number))
         if (credit != null) {
             val lyric = credit.lyricists.joinToString("、") { it.name }.ifBlank { Zh.unknown }
             val music = credit.composers.joinToString("、") { it.name }.ifBlank { Zh.unknown }

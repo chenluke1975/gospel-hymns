@@ -29,10 +29,25 @@ class HymnLogicTest {
         assertTrue(page.composers.isEmpty())
         assertEquals(88, page.englishNumber)
         assertEquals("https://www.hymnal.net/a/example-full", page.audioUrl)
+        assertEquals(null, page.vocalUrl)
         assertEquals("mp3", page.audioKind)
         assertEquals(listOf("第一行", "第二行"), page.stanzas[0].lines)
         assertEquals("副歌", page.stanzas[1].label)
         assertFalse(page.stanzas.joinToString { it.lines.joinToString() }.contains("Am"))
+    }
+
+    @Test
+    fun parserPrefersTheSingingTrackAsVocal() {
+        val html = """
+            <html><body>
+            <span id="song-title-text">有人聲</span>
+            <audio id="main-audio-full"><source src="/a/piano-full" type="audio/mpeg" /></audio>
+            <audio id="main-audio-singing"><source src="/a/sung" type="audio/mpeg" /></audio>
+            </body></html>
+        """.trimIndent()
+        val page = HymnParser.parse(html, "https://www.hymnal.net/en/hymn/ch/1")
+        assertEquals("https://www.hymnal.net/a/piano-full", page.audioUrl)
+        assertEquals("https://www.hymnal.net/a/sung", page.vocalUrl)
     }
 
     @Test

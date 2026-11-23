@@ -3,7 +3,8 @@ package org.gospelhymns.jukebox
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Job
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -11,10 +12,13 @@ import org.gospelhymns.jukebox.data.Catalog
 import org.gospelhymns.jukebox.data.HymnDetail
 import org.gospelhymns.jukebox.data.HymnRepository
 import org.gospelhymns.jukebox.data.LyricSyncProgress
+import org.gospelhymns.jukebox.data.LyricSyncWorker
 import org.gospelhymns.jukebox.player.PlayerHolder
 import org.gospelhymns.jukebox.ui.Zh
 
 enum class LyricMode { Chinese, English, Both }
+
+enum class AudioMix { Vocal, Instrumental }
 
 data class PlayerUiState(
     val number: Int = 1,
@@ -29,6 +33,7 @@ data class PlayerUiState(
     val durationMs: Long = 0L,
     val isPlaying: Boolean = false,
     val seeking: Boolean = false,
+    val audioMix: AudioMix = AudioMix.Vocal,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -43,7 +48,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private var retriedNumber = -1
-    private var downloadJob: Job? = null
+    var returnToCategory = androidx.compose.runtime.mutableStateOf(false)
+        private set
+    var highlightNumber = androidx.compose.runtime.mutableStateOf<Int?>(null)
+        private set
+    var openCategoryId = androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+    var categoryScrollIndex = androidx.compose.runtime.mutableIntStateOf(0)
+        private set
+    var categoryScrollOffset = androidx.compose.runtime.mutableIntStateOf(0)
+        private set
 
     init {
         player.onError = { code ->
@@ -65,6 +79,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         refreshLyricSync()
+        viewModelScope.launch {
+            WorkManager.getInstance(getApplication()).getWorkInfosForUniqueWorkFlow(LyricSyncWorker.NAME).collect { infos ->
+                val info = infos.firstOrNull()
+                val running = info?.state == WorkInfo.State.RUNNING || info?.state == WorkInfo.State.ENQUEUED
+                val saved = info?.progress?.getInt("saved", -1)?.takeIf { it >= 0 } ?: repository.lyricsSavedCount()
+                val total = info?.progress?.getInt("total", 0)?.takeIf { it > 0 } ?: repository.lyricLibrarySize()
+                val current = info?.progress?.getInt("current", -1)?.takeIf { it >= 0 }
+                val waiting = info?.state == WorkInfo.State.ENQUEUED
+                lyricSync.value = LyricSyncProgress(
+                    saved = saved,
+                    total = total,
+                    current = current,
+                    running = running,
+                    note = if (waiting && saved < total) "等待網路連線後繼續" else null,
+                )
+            }
+        }
         viewModelScope.launch {
             while (isActive) {
                 val snapshot = state.value
@@ -101,6 +132,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     loading = false,
                     offline = loaded.fromCache,
                     error = if (loaded.fromCache) Zh.offline else null,
+                    audioMix = if (loaded.detail.vocal() != null) AudioMix.Vocal else AudioMix.Instrumental,
                 )
                 if (autoplay) playLoaded(loaded.detail)
             } catch (_: Exception) {
@@ -159,30 +191,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearCache() {
-        stopLyricDownload()
+        WorkManager.getInstance(getApplication()).cancelUniqueWork(LyricSyncWorker.NAME)
         repository.clearCache()
         refreshLyricSync()
+        LyricSyncWorker.enqueue(getApplication(), replace = true)
         state.value = state.value.copy(toast = Zh.cacheCleared)
     }
 
-    fun startLyricDownload() {
-        if (downloadJob?.isActive == true || lyricSync.value.complete) return
-        downloadJob = viewModelScope.launch {
-            repository.downloadMissingLyrics { progress ->
-                lyricSync.value = progress
-            }
-            refreshLyricSync()
-        }
+    fun retryLyricDownload() {
+        LyricSyncWorker.enqueue(getApplication(), replace = true)
     }
 
-    fun stopLyricDownload() {
-        downloadJob?.cancel()
-        downloadJob = null
-        refreshLyricSync()
+    fun openHymnFromCategory(number: Int, scrollIndex: Int, scrollOffset: Int) {
+        categoryScrollIndex.intValue = scrollIndex
+        categoryScrollOffset.intValue = scrollOffset
+        highlightNumber.value = number
+        openCategoryId.value = catalog.place(number)?.categoryId
+        returnToCategory.value = true
+        openNumber(number, autoplay = false)
+    }
+
+    fun showCategoryOfCurrentHymn() {
+        val number = state.value.number
+        val place = catalog.place(number) ?: return
+        openCategoryId.value = place.categoryId
+        highlightNumber.value = number
+        categoryScrollIndex.intValue = catalog.rowIndex(place.categoryId, number)
+        categoryScrollOffset.intValue = 0
+        returnToCategory.value = false
+    }
+
+    fun finishReturnToCategory() {
+        returnToCategory.value = false
     }
 
     private fun refreshLyricSync() {
-        if (downloadJob?.isActive == true) return
         lyricSync.value = LyricSyncProgress(
             saved = repository.lyricsSavedCount(),
             total = repository.lyricLibrarySize(),
@@ -190,6 +233,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             running = false,
             note = null,
         )
+    }
+
+    fun setAudioMix(mix: AudioMix) {
+        val hymn = state.value.hymn ?: return
+        val url = when (mix) {
+            AudioMix.Vocal -> hymn.vocal()
+            AudioMix.Instrumental -> hymn.instrumental()
+        } ?: return
+        state.value = state.value.copy(audioMix = mix, error = null)
+        if (state.value.isPlaying) {
+            player.play(hymn.number, hymn.chineseTitle, url)
+        }
     }
 
     fun consumeToast() {
@@ -200,8 +255,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun peekTitle(number: Int): String? = repository.peek(number)?.chineseTitle?.takeIf { it.isNotBlank() }
 
+    fun peekFirstLine(number: Int): String? = repository.peek(number)?.firstLyricLine()
+
     private fun playLoaded(hymn: HymnDetail) {
-        val url = hymn.audioUrl
+        val mix = state.value.audioMix
+        val url = when (mix) {
+            AudioMix.Vocal -> hymn.vocal() ?: hymn.instrumental()
+            AudioMix.Instrumental -> hymn.instrumental() ?: hymn.vocal()
+        }
         if (url.isNullOrBlank()) {
             state.value = state.value.copy(error = Zh.noAudio)
             return

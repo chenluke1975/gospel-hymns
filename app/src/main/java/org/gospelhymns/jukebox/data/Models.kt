@@ -29,9 +29,22 @@ data class HymnDetail(
     val chineseStanzas: List<Stanza> = emptyList(),
     val englishStanzas: List<Stanza> = emptyList(),
     val audioUrl: String? = null,
+    val instrumentalUrl: String? = null,
+    val vocalUrl: String? = null,
     val audioKind: String? = null,
     val fetchedAtEpochMs: Long = 0L,
-)
+) {
+    fun firstLyricLine(): String? {
+        val chinese = chineseStanzas.firstNotNullOfOrNull { stanza -> stanza.lines.firstOrNull { it.isNotBlank() } }
+        if (!chinese.isNullOrBlank()) return chinese
+        return englishStanzas.firstNotNullOfOrNull { stanza -> stanza.lines.firstOrNull { it.isNotBlank() } }
+    }
+
+    fun instrumental(): String? = instrumentalUrl?.takeIf { it.isNotBlank() }
+        ?: audioUrl?.takeIf { it.isNotBlank() && it != vocalUrl }
+
+    fun vocal(): String? = vocalUrl?.takeIf { it.isNotBlank() }
+}
 
 @Serializable
 data class HymnCredit(

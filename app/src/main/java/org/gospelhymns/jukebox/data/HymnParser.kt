@@ -11,6 +11,7 @@ data class ParsedPage(
     val stanzas: List<Stanza>,
     val englishNumber: Int?,
     val audioUrl: String?,
+    val vocalUrl: String?,
     val audioKind: String?,
 )
 
@@ -26,8 +27,9 @@ object HymnParser {
             composers = credits(doc, "Music"),
             stanzas = stanzas(doc),
             englishNumber = englishNumber(doc),
-            audioUrl = audio(doc).first,
-            audioKind = audio(doc).second,
+            audioUrl = audio(doc).instrumental,
+            vocalUrl = audio(doc).vocal,
+            audioKind = audio(doc).kind,
         )
     }
 
@@ -88,20 +90,34 @@ object HymnParser {
         return Regex("""/en/hymn/h/(\d+)""").find(href)?.groupValues?.get(1)?.toIntOrNull()
     }
 
-    private fun audio(doc: Document): Pair<String?, String?> {
-        val mp3 = doc.selectFirst("#main-audio-full source[src]")
-            ?: doc.selectFirst("audio#main-audio source[src]")
-            ?: doc.selectFirst("source[type=audio/mpeg]")
-        val mp3Src = mp3?.absUrl("src").orEmpty().ifBlank { mp3?.attr("src").orEmpty() }
-        if (mp3Src.isNotBlank()) return absolute(doc, mp3Src) to "mp3"
-        val midi = doc.selectFirst("source[type=audio/midi], a[href$=.mid], a[href$=.midi]")
-        val midiSrc = when {
-            midi == null -> ""
-            midi.tagName() == "source" -> midi.absUrl("src").ifBlank { midi.attr("src") }
-            else -> midi.absUrl("href").ifBlank { midi.attr("href") }
+    private data class Tracks(val instrumental: String?, val vocal: String?, val kind: String?)
+
+    private fun audio(doc: Document): Tracks {
+        val vocal = mediaUrl(doc, "#main-audio-singing source[src]")
+        val full = mediaUrl(doc, "#main-audio-full source[src]")
+        val verse = mediaUrl(doc, "audio#main-audio source[src]")
+        val midi = doc.selectFirst("source[type=audio/midi], a[href$=.mid], a[href$=.midi]")?.let { element ->
+            val raw = if (element.tagName() == "source") {
+                element.absUrl("src").ifBlank { element.attr("src") }
+            } else {
+                element.absUrl("href").ifBlank { element.attr("href") }
+            }
+            absolute(doc, raw)
         }
-        if (midiSrc.isNotBlank()) return absolute(doc, midiSrc) to "midi"
-        return null to null
+        val instrumental = full ?: verse ?: midi
+        val kind = when {
+            vocal != null || full != null || verse != null -> "mp3"
+            midi != null -> "midi"
+            else -> null
+        }
+        return Tracks(instrumental, vocal, kind)
+    }
+
+    private fun mediaUrl(doc: Document, selector: String): String? {
+        val element = doc.selectFirst(selector) ?: return null
+        val raw = element.absUrl("src").ifBlank { element.attr("src") }
+        if (raw.isBlank()) return null
+        return absolute(doc, raw)
     }
 
     private fun absolute(doc: Document, src: String): String {

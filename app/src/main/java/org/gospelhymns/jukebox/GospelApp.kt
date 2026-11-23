@@ -4,6 +4,7 @@ import android.app.Application
 import org.gospelhymns.jukebox.data.Catalog
 import org.gospelhymns.jukebox.data.HymnCache
 import org.gospelhymns.jukebox.data.HymnRepository
+import org.gospelhymns.jukebox.data.LyricSyncWorker
 import org.gospelhymns.jukebox.data.OkHttpHymnalApi
 import org.gospelhymns.jukebox.data.defaultHttpClient
 import org.gospelhymns.jukebox.player.PlayerHolder
@@ -30,5 +31,6 @@ class GospelApp : Application() {
             catalog = catalog,
         )
         playerHolder = PlayerHolder(this)
+        LyricSyncWorker.enqueue(this)
     }
 }
