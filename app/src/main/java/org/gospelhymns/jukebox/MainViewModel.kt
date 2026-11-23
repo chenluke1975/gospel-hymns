@@ -3,12 +3,14 @@ package org.gospelhymns.jukebox
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.gospelhymns.jukebox.data.Catalog
 import org.gospelhymns.jukebox.data.HymnDetail
 import org.gospelhymns.jukebox.data.HymnRepository
+import org.gospelhymns.jukebox.data.LyricSyncProgress
 import org.gospelhymns.jukebox.player.PlayerHolder
 import org.gospelhymns.jukebox.ui.Zh
 
@@ -37,8 +39,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var state = androidx.compose.runtime.mutableStateOf(PlayerUiState())
         private set
+    var lyricSync = androidx.compose.runtime.mutableStateOf(LyricSyncProgress(0, 0, null, false, null))
+        private set
 
     private var retriedNumber = -1
+    private var downloadJob: Job? = null
 
     init {
         player.onError = { code ->
@@ -59,6 +64,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        refreshLyricSync()
         viewModelScope.launch {
             while (isActive) {
                 val snapshot = state.value
@@ -153,8 +159,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearCache() {
+        stopLyricDownload()
         repository.clearCache()
+        refreshLyricSync()
         state.value = state.value.copy(toast = Zh.cacheCleared)
+    }
+
+    fun startLyricDownload() {
+        if (downloadJob?.isActive == true || lyricSync.value.complete) return
+        downloadJob = viewModelScope.launch {
+            repository.downloadMissingLyrics { progress ->
+                lyricSync.value = progress
+            }
+            refreshLyricSync()
+        }
+    }
+
+    fun stopLyricDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        refreshLyricSync()
+    }
+
+    private fun refreshLyricSync() {
+        if (downloadJob?.isActive == true) return
+        lyricSync.value = LyricSyncProgress(
+            saved = repository.lyricsSavedCount(),
+            total = repository.lyricLibrarySize(),
+            current = null,
+            running = false,
+            note = null,
+        )
     }
 
     fun consumeToast() {

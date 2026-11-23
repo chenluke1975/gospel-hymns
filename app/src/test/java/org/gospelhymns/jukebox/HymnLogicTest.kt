@@ -95,8 +95,42 @@ class HymnLogicTest {
         assertEquals(247, searchHymns("Newton", catalog, emptyList()).single().number)
         assertEquals(247, searchHymns("藉恩得救", catalog, emptyList()).single().number)
         assertTrue(searchHymns("這一行只存在快取", catalog, emptyList()).isEmpty())
-        assertEquals("已開啟 · 歌詞", searchHymns("這一行只存在快取", catalog, cached).single().detail)
+        val lyricHit = searchHymns("這一行只存在快取", catalog, cached).single()
+        assertEquals("歌詞", lyricHit.detail)
+        assertEquals("這一行只存在快取", lyricHit.matchLine)
+        assertEquals(
+            "Amazing grace, sweet the sound",
+            searchHymns(
+                "sweet",
+                catalog,
+                listOf(cached[0].copy(englishStanzas = listOf(Stanza("verse", "1", listOf("Amazing grace, sweet the sound"))))),
+            ).single().matchLine,
+        )
         assertEquals("牛頓小傳", catalog.bio("John Newton"))
+    }
+
+    @Test
+    fun lyricDownloadSkipsHymnsAlreadyOnTheDevice() {
+        val catalog = Catalog.load(
+            categoriesJson = """{"categories":[{"id":"1","name":"甲","subcategories":[{"name":"子","hymns":[1,2]}]}]}""",
+            authorsJson = """{"hymns":[{"number":1,"englishNumber":10},{"number":2,"englishNumber":20}]}""",
+            biosJson = """{"bios":{},"aliases":{}}""",
+        )
+        val dir = File("build/test-lyric-sync").apply { deleteRecursively(); mkdirs() }
+        val cache = HymnCache(dir)
+        cache.write(HymnDetail(number = 1, chineseTitle = "已有", chineseStanzas = listOf(Stanza("verse", "第1節", listOf("已在裝置")))) )
+        val api = CountingApi(resource("sample-ch.html"), resource("sample-en.html"))
+        val repo = HymnRepository(api, cache, catalog)
+        val progress = kotlinx.coroutines.runBlocking { 
+            val seen = mutableListOf<org.gospelhymns.jukebox.data.LyricSyncProgress>()
+            repo.downloadMissingLyrics(pauseMs = 0) { seen += it }
+            seen
+        }
+        assertEquals(1, api.calls.count { it.contains("/hymn/ch/") })
+        assertEquals(listOf(2), api.calls.filter { it.contains("/hymn/ch/") }.map { it.substringAfterLast('/').toInt() })
+        assertTrue(cache.read(2)?.chineseStanzas?.isNotEmpty() == true)
+        assertTrue(progress.last().complete)
+        assertEquals(2, progress.last().saved)
     }
 
     @Test
@@ -121,5 +155,13 @@ class HymnLogicTest {
 
     private object FailingApi : HymnalApi {
         override fun get(url: String): String = error("offline")
+    }
+
+    private class CountingApi(private val chinese: String, private val english: String) : HymnalApi {
+        val calls = mutableListOf<String>()
+        override fun get(url: String): String {
+            calls += url
+            return if (url.contains("/hymn/h/")) english else chinese
+        }
     }
 }

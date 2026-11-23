@@ -4,12 +4,16 @@ fun searchHymns(query: String, catalog: Catalog, cached: List<HymnDetail>): List
     val q = query.trim()
     if (q.isEmpty()) return emptyList()
     val hits = linkedMapOf<Int, SearchHit>()
-    fun add(number: Int, title: String?, detail: String) {
+    fun add(number: Int, title: String?, detail: String, matchLine: String? = null) {
         val previous = hits[number]
         if (previous == null) {
-            hits[number] = SearchHit(number, title, detail)
-        } else if (previous.title == null && title != null) {
-            hits[number] = previous.copy(title = title)
+            hits[number] = SearchHit(number, title, detail, matchLine)
+        } else {
+            hits[number] = previous.copy(
+                title = previous.title ?: title,
+                matchLine = previous.matchLine ?: matchLine,
+                detail = if (previous.matchLine == null && matchLine != null) detail else previous.detail,
+            )
         }
     }
 
@@ -40,18 +44,25 @@ fun searchHymns(query: String, catalog: Catalog, cached: List<HymnDetail>): List
 
     cached.forEach { hymn ->
         val titleHit = listOfNotNull(hymn.chineseTitle, hymn.englishTitle).any { it.contains(q, ignoreCase = true) }
-        val lyricHit = (hymn.chineseStanzas + hymn.englishStanzas).any { stanza ->
-            stanza.lines.any { it.contains(q, ignoreCase = true) }
-        }
-        if (titleHit || lyricHit) {
+        val line = firstMatchingLine(hymn, q)
+        if (titleHit || line != null) {
             val why = when {
-                titleHit && lyricHit -> "標題與歌詞"
+                titleHit && line != null -> "標題與歌詞"
                 titleHit -> "標題"
                 else -> "歌詞"
             }
-            add(hymn.number, hymn.chineseTitle.ifBlank { null }, "已開啟 · $why")
+            add(hymn.number, hymn.chineseTitle.ifBlank { null }, why, line)
         }
     }
 
     return hits.values.sortedBy { it.number }
+}
+
+fun firstMatchingLine(hymn: HymnDetail, query: String): String? {
+    val q = query.trim()
+    if (q.isEmpty()) return null
+    return (hymn.chineseStanzas + hymn.englishStanzas)
+        .asSequence()
+        .flatMap { it.lines.asSequence() }
+        .firstOrNull { it.contains(q, ignoreCase = true) }
 }
