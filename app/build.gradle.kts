@@ -13,7 +13,7 @@ android {
         applicationId = "org.gospelhymns.jukebox"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
+        versionCode = 3
         versionName = "1.1.0"
         vectorDrawables.useSupportLibrary = true
     }
@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.coroutines)
+    implementation(libs.androidx.work)
     implementation(libs.serialization.json)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)

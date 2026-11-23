@@ -47,10 +47,11 @@ class HymnRepository(
      */
     suspend fun downloadMissingLyrics(
         pauseMs: Long = 2_000L,
-        onProgress: (LyricSyncProgress) -> Unit,
-    ) {
+        onProgress: suspend (LyricSyncProgress) -> Unit,
+    ): Int {
         val numbers = catalog.orderedNumbers()
         val total = numbers.size
+        var failures = 0
         onProgress(LyricSyncProgress(lyricsSavedCount(), total, null, running = true, note = null))
         for (number in numbers) {
             coroutineContext.ensureActive()
@@ -66,21 +67,14 @@ class HymnRepository(
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
-                onProgress(
-                    LyricSyncProgress(
-                        saved = lyricsSavedCount(),
-                        total = total,
-                        current = number,
-                        running = false,
-                        note = error.message ?: "連線中斷",
-                    ),
-                )
-                return
+            } catch (_: Exception) {
+                failures += 1
             }
             if (pauseMs > 0) delay(pauseMs)
         }
-        onProgress(LyricSyncProgress(lyricsSavedCount(), total, null, running = false, note = null))
+        val note = if (failures > 0) "有 $failures 首暫時讀不到，連線後會再試" else null
+        onProgress(LyricSyncProgress(lyricsSavedCount(), total, null, running = false, note = note))
+        return failures
     }
 
     suspend fun open(number: Int): LoadedHymn = withContext(Dispatchers.IO) {
@@ -114,8 +108,10 @@ class HymnRepository(
             composers = mergeCredits(chinese.composers, english?.composers.orEmpty(), credit?.composers.orEmpty()),
             chineseStanzas = chinese.stanzas,
             englishStanzas = english?.stanzas.orEmpty(),
-            audioUrl = chinese.audioUrl,
-            audioKind = chinese.audioKind,
+            instrumentalUrl = chinese.audioUrl ?: english?.audioUrl,
+            vocalUrl = chinese.vocalUrl ?: english?.vocalUrl,
+            audioUrl = (chinese.vocalUrl ?: english?.vocalUrl) ?: (chinese.audioUrl ?: english?.audioUrl),
+            audioKind = chinese.audioKind ?: english?.audioKind,
             fetchedAtEpochMs = System.currentTimeMillis(),
         )
     }
